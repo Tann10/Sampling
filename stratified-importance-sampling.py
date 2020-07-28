@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
+from statsmodels.distributions.empirical_distribution import ECDF
+
 plt.style.use('default')
 
 # function to generate a uniform stratified sample
@@ -39,6 +41,8 @@ def sd_estimator(importance_sample):
     mean_est = mean_estimator(importance_sample)
     est_values = (importance_sample['sample'] - 
                   mean_est)**2 * importance_sample['weights']
+    check = (importance_sample['sample']* importance_sample['weights'] - 
+                  mean_est)**2 
     estimate = np.mean(est_values)*n/(n-1)
     estimate = estimate**0.5
     return estimate
@@ -88,28 +92,45 @@ def plot_density(target_mu, appro_mu, target_sigma, appro_sigma, ax):
     ax.legend(loc=2)
 
 # Function for CDF plots
-def plot_CDF(samples, target_mu, appro_mu, target_sigma, appro_sigma, ax):
+def plot_CDF(imp_sample_df, target_mu, appro_mu, target_sigma, appro_sigma, ax, n_bins):
     
     # plot the cumulative histogram
-    n, bins, patches = ax.hist(samples, density=True, histtype='step',
-                               cumulative=True, label='Empirical', 
-                               color='darkgreen')
+#    n, bins, patches = ax.hist(imp_sample_df['sample'], n_bins, density=True, histtype='step',
+#                               cumulative=True, label='Empirical', 
+#                               color='darkgreen')
 
     # Add a line showing the importance distribution.
-    y = ((1 / (np.sqrt(2 * np.pi) * appro_sigma)) *
-         np.exp(-0.5 * (1 / appro_sigma * (bins - appro_mu))**2))
-    y = y.cumsum()
-    y /= y[-1]
+#    y = ((1 / (np.sqrt(2 * np.pi) * appro_sigma)) *
+#         np.exp(-0.5 * (1 / appro_sigma * (bins - appro_mu))**2))
+#    y = y.cumsum()
+#    y /= y[-1]
+    # importance samples
+    ecdf = ECDF(imp_sample_df['sample'])
+    plt.plot(ecdf.x, ecdf.y, label='Empirical Samples')
+    
+#     importance weights
+    ecdf = ECDF(imp_sample_df['sample'] * imp_sample_df['weights'])
+    
+    plt.plot(ecdf.x, ecdf.y, label='Empirical Target')
 
-    ax.plot(bins, y, 'k--', linewidth=1.5, label='Theoretical Importance')
+
+    y_cdf = norm.cdf(imp_sample_df['sample'], appro_mu, appro_sigma)
+    
+    ax.plot(imp_sample_df['sample'], y_cdf, 'k--', linewidth=1.5, label='Theoretical Importance')
+
+#    ax.plot(bins, y,  linewidth=1.5, label='Theoretical Importance 2')
 
     # Add a line showing the target distribution.
-    y = ((1 / (np.sqrt(2 * np.pi) * target_sigma)) *
-         np.exp(-0.5 * (1 / target_sigma * (bins - target_mu))**2))
-    y = y.cumsum()
-    y /= y[-1]
+#    y = ((1 / (np.sqrt(2 * np.pi) * target_sigma)) *
+#         np.exp(-0.5 * (1 / target_sigma * (bins - target_mu))**2))
+#    y = y.cumsum()
+#    y /= y[-1]
+    
+    y_cdf = norm.cdf(imp_sample_df['sample'], target_mu, target_sigma)
+    
+    ax.plot(imp_sample_df['sample'], y_cdf, 'r--',  linewidth=1.5, label='Theoretical Target')
 
-    ax.plot(bins, y, 'r--', linewidth=1.5, label='Theoretical Target')
+#    ax.plot(bins, y, 'r--', linewidth=1.5, label='Theoretical Target 2')
     ax.set_ylabel('Probability')
     ax.set_xlabel('X')
     ax.set_title('CDF')
@@ -119,8 +140,8 @@ def plot_CDF(samples, target_mu, appro_mu, target_sigma, appro_sigma, ax):
     
 if __name__ == "__main__":  
     
-    n_bins =20
-    m_per_bin = 100
+    n_bins =1000
+    m_per_bin = 1
     
     # original distribution
     target_mu = 0
@@ -128,23 +149,34 @@ if __name__ == "__main__":
     target_dist = norm(target_mu, target_sigma)
     
     # importance distribution
-    appro_mu = -2
+    appro_mu = -1
     appro_sigma = 1
     
     target_tail_prob = target_dist.cdf(appro_mu)
-
-    imp_sample_df = stratified_importance_sample(appro_mu, appro_sigma, 
-                                                 target_dist, m_per_bin, n_bins)
     
-    # Evaluating Importance Estimates original Distribution
-    mean_imp_estimate = mean_estimator(imp_sample_df)
-    sd_imp_estimate = sd_estimator(imp_sample_df)
-    p_imp_estimate = left_tail_estimator(imp_sample_df, appro_mu)
+    estimates_pd = pd.DataFrame()
+    for num in range(0,1):
+        imp_sample_df = stratified_importance_sample(appro_mu, appro_sigma, 
+                                                 target_dist, m_per_bin, n_bins)
+        
+    
+        # Evaluating Importance Estimates original Distribution
+        mean_imp_estimate = mean_estimator(imp_sample_df)
+        sd_imp_estimate = sd_estimator(imp_sample_df)
+        p_imp_estimate = left_tail_estimator(imp_sample_df, appro_mu)
+    
+        estimates_pd = estimates_pd.append({'mean_imp_estimate': mean_imp_estimate,
+                                            'sd_imp_estimate': sd_imp_estimate,
+                                            'p_imp_estimate': p_imp_estimate}, ignore_index=True)
+    np.log(estimates_pd['mean_imp_estimate']).hist(bins=n_bins)
+    estimates_pd['mean_imp_estimate'].hist(bins=n_bins)
     
     # Evaluating Estimates Importance distribution
     mu_est = np.mean(imp_sample_df['sample'])
     sd_est = np.std(imp_sample_df['sample'])
     p_est = np.mean(imp_sample_df['sample']<appro_mu)
+        
+        
     
     # plot graph
     fig, ax = plt.subplots(nrows=3, ncols=1, figsize=[10,18])
@@ -213,10 +245,11 @@ if __name__ == "__main__":
 
 
     # plot CDF 
-    plot_CDF(imp_sample_df['sample'], target_mu, appro_mu, target_sigma, 
-             appro_sigma, ax[2])
-    plt.savefig('stratified_importance_sample_2.png')
-
+    plot_CDF(imp_sample_df, target_mu, appro_mu, target_sigma, 
+             appro_sigma, ax[2],  n_bins)
+    plt.savefig('stratified_importance_sample_3.png')
+    
+    
     
         
     
